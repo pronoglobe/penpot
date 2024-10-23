@@ -371,9 +371,9 @@
    - :component-file
    - :shape-ref"
   [shape file page libraries library-exists]
-  (let [library-exists (or library-exists (library-exists? file libraries shape))]
-    (when (= (:id shape) #uuid "81f32503-7638-8059-8005-1883e6d1a4fa")
-      (prn "ok1" library-exists))
+  (let [library-exists (or library-exists (library-exists? file libraries shape))] ;; TODO: esto se añadió en https://github.com/penpot/penpot/pull/4319
+    (when (= (:id shape) #uuid "81f32503-7638-8059-8005-1883e6d1a4fa")             ;;       pero hace que en este caso no se haga el check bien. He puesto
+      (prn "ok1" library-exists))                                                  ;;       esto para corregirlo, pero hay que probar si tiene alguna derivada
     (check-component-not-main-head shape file page libraries)
     (check-component-not-root shape file page)
     ;; We can have situations where the nested copy and the ancestor copy come from different libraries and some of them have been dettached
