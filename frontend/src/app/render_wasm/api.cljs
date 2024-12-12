@@ -8,6 +8,7 @@
   "A WASM based render API"
   (:require
    ["react-dom/server" :as rds]
+   [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.math :as mth]
    [app.common.svg.path :as path]
