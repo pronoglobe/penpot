@@ -12,6 +12,7 @@
    [app.main.data.event :as ev]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.libraries :as dwl]
+   [app.common.types.components-list :as ctkl]
    [app.main.data.workspace.undo :as dwu]
    [app.main.refs :as refs]
    [app.main.router :as rt]
@@ -19,7 +20,7 @@
    [app.main.ui.components.title-bar :refer [title-bar]]
    [app.main.ui.context :as ctx]
    [app.main.ui.icons :as i]
-   [app.main.ui.workspace.libraries :refer [create-file-library-ref]]
+   ;; [app.main.ui.workspace.libraries :refer [create-file-library-ref]]
    [app.main.ui.workspace.sidebar.assets.colors :refer [colors-section]]
    [app.main.ui.workspace.sidebar.assets.common :as cmm]
    [app.main.ui.workspace.sidebar.assets.components :refer [components-section]]
@@ -82,6 +83,12 @@
               :on-click on-click}
           i/open-link]])]]))
 
+(defn- create-file-library-ref
+  [library-id]
+  (l/derived (fn [state]
+               (dm/get-in state [:libraries library-id :data]))
+             st/state))
+
 (mf/defc file-library-content
   {::mf/wrap-props false}
   [{:keys [file local? open-status-ref on-clear-selection filters]}]
@@ -105,9 +112,11 @@
 
         library            (mf/deref library-ref)
         colors             (:colors library)
-        components         (:components library)
         media              (:media library)
         typographies       (:typographies library)
+
+        components         (mf/with-memo [library]
+                             (into [] (ctkl/components-seq library)))
 
         colors             (mf/with-memo [filters colors]
                              (cmm/apply-filters colors filters))
@@ -351,9 +360,11 @@
          (mf/deps file-id)
          (fn []
            (st/emit! (dw/unselect-all-assets file-id))))]
+
     [:div {:class (stl/css :tool-window)
            :on-context-menu dom/prevent-default
            :on-click unselect-all}
+
      [:> file-library-title*
       {:file-id file-id
        :page-id page-id

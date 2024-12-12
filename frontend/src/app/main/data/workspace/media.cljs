@@ -266,9 +266,11 @@
               (on-success image)
               (dmm/notify-finished-loading))
 
+            file-id (:current-file-id state)
+
             prepare
             (fn [content]
-              {:file-id (get-in state [:workspace-file :id])
+              {:file-id file-id
                :name (if (dmm/file? content) (.-name content) (tr "media.image"))
                :is-local false
                :content content})]
@@ -399,22 +401,31 @@
   (ptk/reify ::process-img-component
     ptk/WatchEvent
     (watch [it state _]
-      (let [file-data (wsh/get-local-file state)
-            page      (wsh/lookup-page state)
-            pos       (wsh/viewport-center state)]
+      (let [file-id (:current-file-id state)
+            page-id (:current-page-id state)
+
+            fdata   (wsh/lookup-file-data state file-id)
+            page    (wsh/get-page fdata page-id)
+            pos     (wsh/viewport-center state)]
+
         (->> (create-shapes-img pos media-obj)
-             (rx/map (partial add-shapes-and-component it file-data page (:name media-obj))))))))
+             (rx/map (partial add-shapes-and-component it fdata page (:name media-obj))))))))
 
 (defn- process-svg-component
   [svg-data]
   (ptk/reify ::process-svg-component
     ptk/WatchEvent
     (watch [it state _]
-      (let [file-data (wsh/get-local-file state)
-            page      (wsh/lookup-page state)
-            pos       (wsh/viewport-center state)]
-        (->> (create-shapes-svg (:id file-data) (:objects page) pos svg-data)
-             (rx/map (partial add-shapes-and-component it file-data page (:name svg-data))))))))
+
+      (let [file-id (:current-file-id state)
+            page-id (:current-page-id state)
+
+            fdata   (wsh/lookup-file-data state file-id)
+            page    (wsh/get-page fdata page-id)
+            pos     (wsh/viewport-center state)]
+
+        (->> (create-shapes-svg file-id (:objects page) pos svg-data)
+             (rx/map (partial add-shapes-and-component it fdata page (:name svg-data))))))))
 
 (defn upload-media-components
   [params]

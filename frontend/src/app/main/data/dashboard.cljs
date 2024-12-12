@@ -398,6 +398,7 @@
     (update [_ state]
       (-> state
           (d/update-in-when [:files id :name] (constantly name))
+          (d/update-in-when [:libraries id :name] (constantly name))
           (d/update-in-when [:shared-files id :name] (constantly name))
           (d/update-in-when [:recent-files id :name] (constantly name))))
 

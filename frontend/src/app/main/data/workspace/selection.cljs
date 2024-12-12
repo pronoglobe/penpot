@@ -434,6 +434,7 @@
                                   (gpt/point 0 0))
 
                 file-id         (:current-file-id state)
+
                 libraries       (wsh/get-libraries state)
                 library-data    (wsh/get-file state file-id)
 

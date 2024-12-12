@@ -639,12 +639,13 @@
   (ptk/reify ::detach-component
     ptk/WatchEvent
     (watch [it state _]
-      (let [file      (wsh/get-local-file state)
-            page-id   (get state :current-page-id)
+      (let [page-id   (:current-page-id state)
+
+            fdata     (:data (wsh/lookup-current-file state))
             libraries (wsh/get-libraries state)
 
             changes   (-> (pcb/empty-changes it)
-                          (cll/generate-detach-component id file page-id libraries))]
+                          (cll/generate-detach-component id fdata page-id libraries))]
 
         (rx/of (dch/commit-changes changes))))))
 
@@ -667,8 +668,10 @@
     (watch [it state _]
       (let [page-id          (:current-page-id state)
             objects          (wsh/lookup-page-objects state page-id)
-            file             (wsh/get-local-file state)
+
             libraries        (wsh/get-libraries state)
+            fdata            (:data (wsh/lookup-current-file state))
+
             selected         (->> state
                                   (wsh/lookup-selected)
                                   (cfh/clean-loops objects))
@@ -679,7 +682,7 @@
             changes (when can-detach?
                       (reduce
                        (fn [changes id]
-                         (cll/generate-detach-component changes id file page-id libraries))
+                         (cll/generate-detach-component changes id fdata page-id libraries))
                        (pcb/empty-changes it)
                        selected))]
 
@@ -786,30 +789,25 @@
     ptk/WatchEvent
     (watch [it state _]
       (log/info :msg "RESET-COMPONENT of shape" :id (str id))
-      (let [file       (wsh/get-local-file state)
-            file-full  (wsh/get-local-file-full state)
-            libraries  (wsh/get-libraries state)
-
+      (let [libraries  (:files state)
             page-id    (:current-page-id state)
-            container  (ctn/get-container file :page page-id)
 
-            components-v2
-            (features/active-feature? state "components/v2")
+            file       (wsh/lookup-current-file state)
+            data       (:data file)
 
+            container  (ctn/get-container data :page page-id)
             undo-id    (js/Symbol)
 
             changes
             (-> (pcb/empty-changes it)
-                (cll/generate-reset-component file-full libraries container id components-v2))]
+                (cll/generate-reset-component file libraries container id true))]
 
         (log/debug :msg "RESET-COMPONENT finished" :js/rchanges (log-changes
                                                                  (:redo-changes changes)
                                                                  file))
-
-        (rx/of
-         (dwu/start-undo-transaction undo-id)
-         (dch/commit-changes changes)
-         (dwu/commit-undo-transaction undo-id))))))
+        (rx/of (dwu/start-undo-transaction undo-id)
+               (dch/commit-changes changes)
+               (dwu/commit-undo-transaction undo-id))))))
 
 (defn reset-components
   "Cancels all modifications in the shapes with the given ids"
@@ -841,21 +839,25 @@
      ptk/WatchEvent
      (watch [it state _]
        (log/info :msg "UPDATE-COMPONENT of shape" :id (str id) :undo-group undo-group)
-       (let [page-id       (get state :current-page-id)
-             local-file    (wsh/get-local-file state)
-             full-file     (wsh/get-local-file-full state)
-             container     (ctn/get-container local-file :page page-id)
+       (let [page-id       (:current-page-id state)
+             libraries     (:libraries state)
+
+             ;; local-file    (wsh/get-local-file state)
+             ;; full-file     (wsh/get-local-file-full state)
+
+             file          (wsh/lookup-current-file state)
+             data          (:data file)
+
+             container     (ctn/get-container data :page page-id)
              shape         (ctn/get-shape container id)
-             components-v2 (features/active-feature? state "components/v2")]
+             ]
 
          (when (ctk/instance-head? shape)
-           (let [libraries (wsh/get-libraries state)
-
-                 changes
+           (let [changes
                  (-> (pcb/empty-changes it)
                      (pcb/set-undo-group undo-group)
                      (pcb/with-container container)
-                     (cll/generate-sync-shape-inverse full-file libraries container id components-v2))
+                     (cll/generate-sync-shape-inverse file libraries container id true))
 
                  file-id   (:component-file shape)
                  file      (wsh/get-file state file-id)
@@ -887,7 +889,7 @@
              (rx/of
               (when (seq (:redo-changes local-changes))
                 (dch/commit-changes (assoc local-changes
-                                           :file-id (:id local-file))))
+                                           :file-id (:id file))))
               (when (seq (:redo-changes nonlocal-changes))
                 (dch/commit-changes (assoc nonlocal-changes
                                            :file-id file-id)))))))))))
@@ -1143,7 +1145,8 @@
   (ptk/reify ::ignore-sync
     ptk/UpdateEvent
     (update [_ state]
-      (assoc-in state [:workspace-file :ignore-sync-until] (dt/now)))
+      (let [file-id (:current-file-id state)]
+        (assoc-in state [:files file-id :ignore-sync-until] (dt/now))))
 
     ptk/WatchEvent
     (watch [_ state _]
@@ -1157,11 +1160,13 @@
   "Get a lazy sequence of all the assets of each type in the library that have
   been modified after the last sync of the library. The sync date may be
   overriden by providing a ignore-until parameter."
-  ([library file-data] (assets-need-sync library file-data nil))
+  ([library file-data]
+   (assets-need-sync library file-data nil))
   ([library file-data ignore-until]
-   (let [sync-date (max (:synced-at library) (or ignore-until 0))]
-     (when (> (:modified-at library) sync-date)
-       (ctf/used-assets-changed-since file-data library sync-date)))))
+   (when (not= (:id library) (:id file-data))
+     (let [sync-date (max (:synced-at library) (or ignore-until 0))]
+       (when (> (:modified-at library) sync-date)
+         (ctf/used-assets-changed-since file-data library sync-date))))))
 
 (defn notify-sync-file
   [file-id]
@@ -1169,18 +1174,29 @@
   (ptk/reify ::notify-sync-file
     ptk/WatchEvent
     (watch [_ state _]
-      (let [file-data (:workspace-data state)
-            ignore-until (dm/get-in state [:workspace-file :ignore-sync-until])
-            libraries-need-sync (filter #(seq (assets-need-sync % file-data ignore-until))
-                                        (vals (get state :libraries)))
-            do-more-info #(modal/show! :libraries-dialog {:starting-tab "updates"})
-            do-update #(do (apply st/emit! (map (fn [library]
-                                                  (sync-file (:current-file-id state)
-                                                             (:id library)))
-                                                libraries-need-sync))
-                           (st/emit! (ntf/hide)))
-            do-dismiss #(do (st/emit! ignore-sync)
-                            (st/emit! (ntf/hide)))]
+      (let [file         (dm/get-in state [:files file-id])
+            file-data    (get file :data)
+            ignore-until (get file :ignore-sync-until)
+
+
+            ;; FIXME: syntax of this can be improved
+            libraries-need-sync
+            (filter #(seq (assets-need-sync % file-data ignore-until))
+                    (vals (get state :files)))
+
+            do-more-info
+            #(modal/show! :libraries-dialog {:starting-tab "updates"})
+
+            do-update
+            #(do (apply st/emit! (map (fn [library]
+                                        (sync-file (:current-file-id state)
+                                                   (:id library)))
+                                      libraries-need-sync))
+                 (st/emit! (ntf/hide)))
+
+            do-dismiss
+            #(do (st/emit! ignore-sync)
+                 (st/emit! (ntf/hide)))]
 
         (when (seq libraries-need-sync)
           (rx/of (ntf/dialog

@@ -172,16 +172,21 @@
   (ptk/reify ::libraries-fetched
     ptk/UpdateEvent
     (update [_ state]
-      (assoc state :libraries (d/index-by :id libraries)))
+      (let [libraries (d/index-by :id libraries)]
+        (update state :files merge libraries)))
 
     ptk/WatchEvent
     (watch [_ state _]
-      (let [file-id       (dm/get-in state [:workspace-file :id])
-            ignore-until  (dm/get-in state [:workspace-file :ignore-sync-until])
-            needs-check?  (some #(and (> (:modified-at %) (:synced-at %))
-                                      (or (not ignore-until)
-                                          (> (:modified-at %) ignore-until)))
-                                libraries)]
+      (let [file         (wsh/lookup-current-file state)
+            file-id      (get file :id)
+            ignore-until (get file :ignore-sync-until)
+
+            needs-check?
+            (some #(and (> (:modified-at %) (:synced-at %))
+                        (or (not ignore-until)
+                            (> (:modified-at %) ignore-until)))
+                  libraries)]
+
         (when needs-check?
           (rx/concat (rx/timer 1000)
                      (rx/of (dwl/notify-sync-file file-id))))))))
@@ -240,10 +245,13 @@
 
     ptk/UpdateEvent
     (update [_ state]
-      (-> state
-          (assoc :thumbnails thumbnails)
-          (assoc :workspace-file (dissoc file :data))
-          (assoc :workspace-data (:data file))))
+      (let [file-id (:id file)]
+        (-> state
+            (assoc :thumbnails thumbnails)
+            ;; (assoc :workspace-file (dissoc file :data))
+            (assoc :workspace-data (:data file))
+            (update :files assoc file-id file)
+            #_(update :libraries assoc file-id file))))
 
     ptk/WatchEvent
     (watch [_ state _]
@@ -300,11 +308,12 @@
   (ptk/reify ::initialize-workspace
     ptk/UpdateEvent
     (update [_ state]
-      (assoc state
-             :recent-colors (:recent-colors storage/user)
-             :workspace-ready false
-             :current-file-id file-id
-             :workspace-presence {}))
+      (-> state
+          (dissoc :files)
+          (assoc :recent-colors (:recent-colors storage/user))
+          (assoc :workspace-ready false)
+          (assoc :current-file-id file-id)
+          (assoc :workspace-presence {})))
 
     ptk/WatchEvent
     (watch [_ state stream]
@@ -358,12 +367,14 @@
     ptk/UpdateEvent
     (update [_ state]
       (-> state
+          ;; FIXME: revisit
           (dissoc
            :current-file-id
            :workspace-data
            :workspace-editor-state
-           :workspace-file
-           :libraries
+           ;; :workspace-file
+           :files
+           ;; :libraries
            :workspace-media-objects
            :workspace-persistence
            :workspace-presence
@@ -569,20 +580,14 @@
    (ptk/reify ::set-file-plugin-data
      ptk/WatchEvent
      (watch [it state _]
-       (let [file-data
-             (if (= file-id (:current-file-id state))
-               (:workspace-data state)
-               (get-in state [:libraries file-id :data]))
-
-             changes
-             (-> (pcb/empty-changes it)
-                 (pcb/with-file-data file-data)
-                 (assoc :file-id file-id)
-                 (pcb/set-plugin-data type id page-id namespace key value))]
+       (let [file-data (dm/get-in state [:files file-id :data])
+             changes   (-> (pcb/empty-changes it)
+                           (pcb/with-file-data file-data)
+                           (assoc :file-id file-id)
+                           (pcb/set-plugin-data type id page-id namespace key value))]
          (rx/of (dch/commit-changes changes)))))))
 
 (declare purge-page)
-(declare go-to-file)
 
 (defn- delete-page-components
   [changes page]
@@ -621,12 +626,13 @@
 
         (rx/of (dch/commit-changes changes)
                (when (= id (:current-page-id state))
-                 (go-to-file)))))))
+                 (dcm/go-to-workspace)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; WORKSPACE File Actions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; FIXME: move to common
 (defn rename-file
   [id name]
   {:pre [(uuid? id) (string? name)]}
@@ -638,7 +644,8 @@
 
       ptk/UpdateEvent
       (update [_ state]
-        (assoc-in state [:workspace-file :name] name))
+        (let [file-id (:current-file-id state)]
+          (assoc-in state [:files file-id :name] name)))
 
       ptk/WatchEvent
       (watch [_ _ _]
@@ -1295,8 +1302,9 @@
           ;; When copying an instance that is nested inside another one, we need to
           ;; advance the shape refs to one or more levels of remote mains.
           (advance-copies [state selected data]
-            (let [file      (wsh/get-local-file-full state)
-                  libraries (wsh/get-libraries state)
+            (let [file      (wsh/lookup-current-file state)
+                  libraries (:files state)
+                  ;; FIXME
                   page      (wsh/lookup-page state)
                   heads     (mapcat #(ctn/get-child-heads (:objects data) %) selected)]
               (update data :objects
@@ -1342,7 +1350,8 @@
 
                   file-id  (:current-file-id state)
                   frame-id (cfh/common-parent-frame objects selected)
-                  version  (dm/get-in state [:workspace-file :version])
+                  file     (wsh/lookup-file state file-id)
+                  version  (get file :version)
 
                   initial  {:type :copied-shapes
                             :features features
@@ -1739,9 +1748,11 @@
               page-objects (:objects page)
 
               libraries    (wsh/get-libraries state)
-              ldata        (wsh/get-local-file state)
+              ldata        (wsh/lookup-file-data state file-id)
 
-              full-libs    (assoc-in libraries [(:id ldata) :data] ldata)
+              ;; full-libs    (assoc-in libraries [(:id ldata) :data] ldata)
+
+              full-libs    libraries
 
               [parent-id
                frame-id]   (ctn/find-valid-parent-and-frame-ids candidate-parent-id page-objects (vals objects) true full-libs)
@@ -1899,7 +1910,7 @@
   (ptk/reify ::paste-image
     ptk/WatchEvent
     (watch [_ state _]
-      (let [file-id  (dm/get-in state [:workspace-file :id])
+      (let [file-id  (:current-file-id state)
             position (calculate-paste-position state)
             params   {:file-id file-id
                       :blobs [image]

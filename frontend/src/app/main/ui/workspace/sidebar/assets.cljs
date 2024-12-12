@@ -23,6 +23,7 @@
    [app.main.ui.workspace.sidebar.assets.file-library :refer [file-library]]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
+   [okulary.core :as l]
    [cuerdas.core :as str]
    [rumext.v2 :as mf]))
 
@@ -31,13 +32,19 @@
    ::mf/props :obj
    ::mf/private true}
   [{:keys [filters]}]
-  (let [libraries (mf/deref refs/libraries)
-        libraries (mf/with-memo [libraries]
+  (let [file-id   (mf/use-ctx ctx/current-file-id)
+
+        libraries (mf/deref refs/libraries)
+        libraries (mf/with-memo [libraries file-id]
+                    (prn (map :is-shared libraries))
+
                     (->> (vals libraries)
                          (remove :is-indirect)
+                         (remove #(= file-id (:id %)))
                          (map (fn [file]
                                 (update file :data dissoc :pages-index)))
                          (sort-by #(str/lower (:name %)))))]
+
     (for [file libraries]
       [:& file-library
        {:key (dm/str (:id file))
@@ -46,19 +53,16 @@
         :default-open? false
         :filters filters}])))
 
+(def ^:private ref:local-library
+  (l/derived (fn [file]
+               (update file :data dissoc :pages-index))
+             refs/workspace-data))
+
 (mf/defc assets-local-library
   {::mf/wrap [mf/memo]
    ::mf/wrap-props false}
   [{:keys [filters]}]
-  ;; NOTE: as workspace-file is an incomplete view of file (it do not
-  ;; contain :data), we need to reconstruct it using workspace-data
-  (let [file   (mf/deref refs/workspace-file)
-        data   (mf/deref refs/workspace-data)
-        data   (mf/with-memo [data]
-                 (dissoc data :pages-index))
-        file   (mf/with-memo [file data]
-                 (assoc file :data data))]
-
+  (let [file (mf/deref ref:local-library)]
     [:& file-library
      {:file file
       :local? true

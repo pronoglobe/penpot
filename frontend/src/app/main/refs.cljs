@@ -71,13 +71,26 @@
 (def files
   (l/derived :files st/state))
 
+(def file
+  (l/derived (fn [state]
+               (let [file-id (:current-file-id state)
+                     files   (:files state)]
+                 (get files file-id)))
+             st/state))
+
+;; (def workspace-file
+;;   "A workspace specific file instance that does not holds the data"
+;;   (l/derived (l/key :workspace-file) st/state))
+
 (def shared-files
   "A derived state that points to the current list of shared
   files (without the content, only summary)"
   (l/derived :shared-files st/state))
 
 (def libraries
-  (l/derived :libraries st/state))
+  "A derived state that contanins the currently loaded shared libraries
+  with all its content; including the current file"
+  (l/derived :files st/state))
 
 (defn extract-selected-files
   [files selected]
@@ -218,19 +231,22 @@
   (l/derived #(contains? % :rulers) workspace-layout))
 
 (def workspace-file
-  "A ref to a striped vision of file (without data)."
-  (l/derived (fn [state]
-               (let [file (:workspace-file state)
-                     data (:workspace-data state)]
-                 (-> file
-                     (dissoc :data)
-                     ;; FIXME: still used in sitemaps but sitemaps
-                     ;; should declare its own lense for it
-                     (assoc :pages (:pages data)))))
-             st/state =))
+  (l/derived (l/key :workspace-file) st/state))
 
 (def workspace-data
   (l/derived :workspace-data st/state))
+
+;; (def workspace-file
+;;   "A ref to a striped vision of file (without data)."
+;;   (l/derived (fn [state]
+;;                (let [file (:workspace-file state)
+;;                      data (:workspace-data state)]
+;;                  (-> file
+;;                      (dissoc :data)
+;;                      ;; FIXME: still used in sitemaps but sitemaps
+;;                      ;; should declare its own lense for it
+;;                      (assoc :pages (:pages data)))))
+;;              st/state =))
 
 (def workspace-file-colors
   (l/derived (fn [{:keys [id] :as data}]

@@ -77,9 +77,9 @@
     ptk/UpdateEvent
     (update [_ state]
       (let [current-file-id (get state :current-file-id)
-            path            (if (= file-id current-file-id)
-                              [:workspace-data]
-                              [:libraries file-id :data])
+            local-file?     (= current-file-id file-id)
+
+            path            [:files file-id]
 
             undo-changes    (if pending
                               (->> pending
@@ -93,14 +93,27 @@
                               (into redo-changes
                                     (mapcat :redo-changes)
                                     pending)
-                              redo-changes)]
+                              redo-changes)
+            apply-changes
+            (fn [fdata]
+              (let [fdata (cpc/process-changes fdata undo-changes false)
+                    fdata (cpc/process-changes fdata redo-changes false)
+                    pids (into #{} xf:map-page-id redo-changes)]
+                (reduce #(ctst/update-object-indices %1 %2) fdata pids)))
 
-        (d/update-in-when state path
-                          (fn [file]
-                            (let [file (cpc/process-changes file undo-changes false)
-                                  file (cpc/process-changes file redo-changes false)
-                                  pids (into #{} xf:map-page-id redo-changes)]
-                              (reduce #(ctst/update-object-indices %1 %2) file pids))))))))
+            fdata  (if local-file?
+                     (get state :workspace-data)
+                     (-> (get-in state path)
+                         (get :data)))
+
+            fdata  (apply-changes fdata)]
+
+        (cond-> state
+          local-file?
+          (assoc :workspace-data fdata)
+
+          :always
+          (update-in path assoc :data fdata))))))
 
 
 (defn commit

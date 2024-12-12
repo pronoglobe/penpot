@@ -162,6 +162,12 @@
       [:& workspace-loader*])))
 
 
+(def ^:private ref:file-without-data
+  (l/derived (fn [file]
+               (dissoc file :data))
+             refs/file
+             =))
+
 (mf/defc workspace*
   {::mf/props :obj
    ::mf/wrap [mf/memo]}
@@ -171,7 +177,7 @@
         wglobal          (mf/deref refs/workspace-global)
 
         team             (mf/deref refs/team)
-        file             (mf/deref refs/workspace-file)
+        file             (mf/deref ref:file-without-data)
 
         file-name        (:name file)
         permissions      (:permissions team)

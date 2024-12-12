@@ -14,11 +14,28 @@
    [app.common.svg.path.command :as upc]
    [app.common.uuid :as uuid]))
 
+(defn lookup-current-file
+  [state]
+  (let [file-id (:current-file-id state)]
+    (dm/get-in state [:files file-id])))
+
+(defn lookup-file
+  [state file-id]
+  (dm/get-in state [:files file-id]))
+
+(defn lookup-file-data
+  [state file-id]
+  (dm/get-in state [:files file-id :data]))
+
 (defn lookup-page
   ([state]
    (lookup-page state (:current-page-id state)))
   ([state page-id]
    (get-in state [:workspace-data :pages-index page-id])))
+
+(defn get-page
+  [fdata page-id]
+  (dm/get-in fdata [:pages-index page-id]))
 
 (defn lookup-page-objects
   ([state]
@@ -92,23 +109,21 @@
    (let [objects (lookup-page-objects state page-id)]
      (into [] (filter filter-fn) (vals objects)))))
 
-(defn get-local-file
-  "Get the data content of the file you are currently working with."
-  [state]
-  (get state :workspace-data))
+;; (defn get-local-file
+;;   "Get the data content of the file you are currently working with."
+;;   [state]
+;;   (get state :workspace-data))
 
-(defn get-local-file-full
-  [state]
-  (-> (get state :workspace-file)
-      (assoc :data (get state :workspace-data))))
+;; (defn get-local-file-full
+;;   [state]
+;;   (-> (get state :workspace-file)
+;;       (assoc :data (get state :workspace-data))))
 
 (defn get-file
   "Get the data content of the given file (it may be the current file
   or one library)."
   [state file-id]
-  (if (= file-id (:current-file-id state))
-    (get state :workspace-data)
-    (dm/get-in state [:libraries file-id :data])))
+  (lookup-file state file-id))
 
 (defn get-file-full
   "Get the data content of the given file (it may be the current file
@@ -122,10 +137,7 @@
 (defn get-libraries
   "Retrieve all libraries, including the local file."
   [state]
-  (let [{:keys [id] :as local} (:workspace-data state)]
-    (-> (:libraries state)
-        (assoc id {:id id
-                   :data local}))))
+  (:files state))
 
 (defn- set-content-modifiers [state]
   (fn [id shape]

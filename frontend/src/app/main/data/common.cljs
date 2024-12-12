@@ -12,6 +12,7 @@
    [app.common.schema :as sm]
    [app.common.types.components-list :as ctkl]
    [app.common.types.team :as ctt]
+   [app.main.data.workspace.state-helpers :as wsh]
    [app.main.data.modal :as modal]
    [app.main.data.notifications :as ntf]
    [app.main.data.persistence :as-alias dps]
@@ -111,8 +112,9 @@
     ptk/WatchEvent
     (watch [_ state _]
       (let [features (features/get-team-enabled-features state)
-            data     (:workspace-data state)
-            file     (:workspace-file state)]
+            file     (wsh/lookup-current-file state)
+            data     (get file :data)]
+
         (->> (if (and data file)
                (rx/of {:name             (:name file)
                        :components-count (count (ctkl/components-seq data))
