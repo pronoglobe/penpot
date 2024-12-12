@@ -308,7 +308,7 @@
     (cond
       (and (some? content)
            (or (= type :svg-raw)
-               (and (= type :path) (some? (:svg-attrs shape)))))
+               (and (= type :path) (d/not-empty? (:svg-attrs shape)))))
       (set-shape-svg-raw-content (get-static-markup shape))
 
       (= type :path)
