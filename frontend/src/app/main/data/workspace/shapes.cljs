@@ -169,16 +169,19 @@
      (watch [it state _]
        (let [file-id       (:current-file-id state)
              page-id       (or page-id (:current-page-id state))
-             file          (wsh/get-file state file-id)
-             page          (wsh/lookup-page state page-id)
-             objects       (wsh/lookup-page-objects state page-id)
+
+             fdata         (wsh/lookup-file-data state file-id)
+             page          (wsh/get-page fdata page-id)
+             objects       (:objects page)
+
              components-v2 (features/active-feature? state "components/v2")
              undo-id (or (:undo-id options) (js/Symbol))
              [all-parents changes] (-> (pcb/empty-changes it (:id page))
-                                       (cls/generate-delete-shapes file page objects ids {:components-v2 components-v2
-                                                                                          :ignore-touched (:component-swap options)
-                                                                                          :undo-group (:undo-group options)
-                                                                                          :undo-id undo-id}))]
+                                       (cls/generate-delete-shapes fdata page objects ids
+                                                                   {:components-v2 components-v2
+                                                                    :ignore-touched (:component-swap options)
+                                                                    :undo-group (:undo-group options)
+                                                                    :undo-id undo-id}))]
 
          (rx/of (dwu/start-undo-transaction undo-id)
                 (dc/detach-comment-thread ids)

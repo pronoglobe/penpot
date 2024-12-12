@@ -335,8 +335,8 @@
       (let [file-id      (:current-file-id state)
             page         (wsh/lookup-page state)
             objects      (:objects page)
-            libraries    (wsh/get-libraries state)
-            library-data (wsh/get-file state file-id)
+            libraries    (wsh/lookup-libraries state)
+            library-data (wsh/lookup-file state file-id)
             shape-id     (first ids)
             base-shape   (get objects shape-id)
 

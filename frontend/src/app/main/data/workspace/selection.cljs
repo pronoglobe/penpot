@@ -435,8 +435,8 @@
 
                 file-id         (:current-file-id state)
 
-                libraries       (wsh/get-libraries state)
-                library-data    (wsh/get-file state file-id)
+                libraries       (wsh/lookup-libraries state)
+                library-data    (wsh/lookup-file-data state file-id)
 
                 changes         (-> (pcb/empty-changes it)
                                     (cll/generate-duplicate-changes objects page ids delta libraries library-data file-id)

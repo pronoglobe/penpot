@@ -248,10 +248,9 @@
       (let [file-id (:id file)]
         (-> state
             (assoc :thumbnails thumbnails)
-            ;; (assoc :workspace-file (dissoc file :data))
             (assoc :workspace-data (:data file))
             (update :files assoc file-id file)
-            #_(update :libraries assoc file-id file))))
+            )))
 
     ptk/WatchEvent
     (watch [_ state _]
@@ -372,9 +371,7 @@
            :current-file-id
            :workspace-data
            :workspace-editor-state
-           ;; :workspace-file
            :files
-           ;; :libraries
            :workspace-media-objects
            :workspace-persistence
            :workspace-presence
@@ -608,21 +605,19 @@
   (ptk/reify ::delete-page
     ptk/WatchEvent
     (watch [it state _]
-      (let [components-v2 (features/active-feature? state "components/v2")
-            file-id       (:current-file-id state)
-            file          (wsh/get-file state file-id)
-            pages (get-in state [:workspace-data :pages])
-            index (d/index-of pages id)
-            page (get-in state [:workspace-data :pages-index id])
-            page (assoc page :index index)
+      (let [file-id (:current-file-id state)
+            fdata   (wsh/lookup-file-data state file-id)
+            pindex  (:pages-index fdata)
+            pages   (:pages fdata)
 
-            changes (cond-> (pcb/empty-changes it)
-                      components-v2
-                      (pcb/with-library-data file)
-                      components-v2
-                      (delete-page-components page)
-                      :always
-                      (pcb/del-page page))]
+            index   (d/index-of pages id)
+            page    (get pindex id)
+            page    (assoc page :index index)
+
+            changes (-> (pcb/empty-changes it)
+                        (pcb/with-library-data fdata)
+                        (delete-page-components page)
+                        (pcb/del-page page))]
 
         (rx/of (dch/commit-changes changes)
                (when (= id (:current-page-id state))
@@ -1747,7 +1742,7 @@
 
               page-objects (:objects page)
 
-              libraries    (wsh/get-libraries state)
+              libraries    (wsh/lookup-libraries state)
               ldata        (wsh/lookup-file-data state file-id)
 
               ;; full-libs    (assoc-in libraries [(:id ldata) :data] ldata)

@@ -63,7 +63,7 @@
   [file-id state]
   (if (= file-id (:current-file-id state))
     "<local>"
-    (str "<" (get-in state [:libraries file-id :name]) ">")))
+    (str "<" (get-in state [:files file-id :name]) ">")))
 
 (defn- log-changes
   [changes file]
@@ -503,7 +503,7 @@
   (ptk/reify ::duplicate-component
     ptk/WatchEvent
     (watch [it state _]
-      (let [libraries          (wsh/get-libraries state)
+      (let [libraries          (wsh/lookup-libraries state)
             library            (get libraries library-id)
             components-v2      (features/active-feature? state "components/v2")
             changes (-> (pcb/empty-changes it nil)
@@ -527,7 +527,7 @@
                 page-id       (:main-instance-page component)
                 root-id       (:main-instance-id component)
                 file-id       (:current-file-id state)
-                file          (wsh/get-file state file-id)
+                fdata         (wsh/lookup-file-data state file-id)
                 page          (wsh/lookup-page state page-id)
                 objects       (wsh/lookup-page-objects state page-id)
                 components-v2 (features/active-feature? state "components/v2")
@@ -536,7 +536,7 @@
                 [all-parents changes]
                 (-> (pcb/empty-changes it page-id)
                     ;; Deleting main root triggers component delete
-                    (cls/generate-delete-shapes file page objects #{root-id} {:components-v2 components-v2
+                    (cls/generate-delete-shapes fdata page objects #{root-id} {:components-v2 components-v2
                                                                               :undo-group undo-group
                                                                               :undo-id undo-id}))]
             (rx/of
@@ -561,12 +561,14 @@
   (ptk/reify ::restore-component
     ptk/WatchEvent
     (watch [it state _]
-      (let [page-id      (:current-page-id state)
-            current-page (dm/get-in state [:workspace-data :pages-index page-id])
-            library-data (wsh/get-file state library-id)
-            objects      (wsh/lookup-page-objects state page-id)
-            changes      (-> (pcb/empty-changes it)
-                             (cll/generate-restore-component library-data component-id library-id current-page objects))]
+      (let [page-id (:current-page-id state)
+            page    (wsh/lookup-page state page-id)
+            objects (:objects page)
+
+            ldata   (wsh/lookup-file-data state library-id)
+
+            changes (-> (pcb/empty-changes it)
+                        (cll/generate-restore-component ldata component-id library-id page objects))]
         (rx/of (dch/commit-changes changes))))))
 
 
@@ -596,7 +598,7 @@
      ptk/WatchEvent
      (watch [it state _]
        (let [page      (wsh/lookup-page state)
-             libraries (wsh/get-libraries state)
+             libraries (wsh/lookup-libraries state)
 
              objects   (:objects page)
              changes   (-> (pcb/empty-changes it (:id page))
@@ -640,9 +642,10 @@
     ptk/WatchEvent
     (watch [it state _]
       (let [page-id   (:current-page-id state)
+            file-id   (:current-file-id state)
 
-            fdata     (:data (wsh/lookup-current-file state))
-            libraries (wsh/get-libraries state)
+            fdata     (wsh/lookup-file-data state file-id)
+            libraries (wsh/lookup-libraries state)
 
             changes   (-> (pcb/empty-changes it)
                           (cll/generate-detach-component id fdata page-id libraries))]
@@ -667,18 +670,23 @@
     ptk/WatchEvent
     (watch [it state _]
       (let [page-id          (:current-page-id state)
+            file-id          (:current-file-id state)
+
+            ;; FIXME: revisit, innefficient access
             objects          (wsh/lookup-page-objects state page-id)
 
-            libraries        (wsh/get-libraries state)
-            fdata            (:data (wsh/lookup-current-file state))
+            libraries        (wsh/lookup-libraries state)
+            fdata            (wsh/lookup-file-data state file-id)
 
             selected         (->> state
                                   (wsh/lookup-selected)
                                   (cfh/clean-loops objects))
+
             selected-objects (map #(get objects %) selected)
             copies           (filter ctk/in-component-copy? selected-objects)
             can-detach?      (and (seq copies)
                                   (every? #(not (ctn/has-any-copy-parent? objects %)) selected-objects))
+
             changes (when can-detach?
                       (reduce
                        (fn [changes id]
@@ -763,9 +771,9 @@
     ptk/UpdateEvent
     (update [_ state]
       (-> state
-          (update-in [:libraries library-id]
+          (update-in [:files library-id]
                      assoc :modified-at modified-at :revn revn)
-          (d/update-in-when [:libraries library-id :data]
+          (d/update-in-when [:files library-id :data]
                             ch/process-changes changes)))
 
     ptk/WatchEvent
@@ -840,15 +848,16 @@
      (watch [it state _]
        (log/info :msg "UPDATE-COMPONENT of shape" :id (str id) :undo-group undo-group)
        (let [page-id       (:current-page-id state)
-             libraries     (:libraries state)
+
+             libraries     (wsh/lookup-libraries state)
 
              ;; local-file    (wsh/get-local-file state)
              ;; full-file     (wsh/get-local-file-full state)
 
              file          (wsh/lookup-current-file state)
-             data          (:data file)
+             fdata         (:data file)
 
-             container     (ctn/get-container data :page page-id)
+             container     (ctn/get-container fdata :page page-id)
              shape         (ctn/get-shape container id)
              ]
 
@@ -857,10 +866,10 @@
                  (-> (pcb/empty-changes it)
                      (pcb/set-undo-group undo-group)
                      (pcb/with-container container)
-                     (cll/generate-sync-shape-inverse file libraries container id true))
+                     (cll/generate-sync-shape-inverse fdata libraries container id true))
 
-                 file-id   (:component-file shape)
-                 file      (wsh/get-file state file-id)
+                 ldata     (->> (:component-file shape)
+                                (wsh/lookup-file-data state))
 
                  xf-filter (comp
                             (filter :local-change?)
@@ -881,10 +890,10 @@
              (log/debug :msg "UPDATE-COMPONENT finished"
                         :js/local-changes (log-changes
                                            (:redo-changes local-changes)
-                                           file)
+                                           fdata)
                         :js/nonlocal-changes (log-changes
                                               (:redo-changes nonlocal-changes)
-                                              file))
+                                              fdata))
 
              (rx/of
               (when (seq (:redo-changes local-changes))
@@ -892,18 +901,14 @@
                                            :file-id (:id file))))
               (when (seq (:redo-changes nonlocal-changes))
                 (dch/commit-changes (assoc nonlocal-changes
-                                           :file-id file-id)))))))))))
+                                           :file-id (:id ldata))))))))))))
 
 (defn- update-component-thumbnail-sync
   [state component-id file-id tag]
-  (let [current-file-id (:current-file-id state)
-        current-file?   (= current-file-id file-id)
-        data            (if current-file?
-                          (get state :workspace-data)
-                          (get-in state [:libraries file-id :data]))
-        component       (ctkl/get-component data component-id)
-        page-id         (:main-instance-page component)
-        root-id         (:main-instance-id component)]
+  (let [data      (wsh/lookup-file-data state file-id)
+        component (ctkl/get-component data component-id)
+        page-id   (:main-instance-page component)
+        root-id   (:main-instance-id component)]
     (dwt/update-thumbnail file-id page-id root-id tag "update-component-thumbnail-sync")))
 
 (defn update-component-sync
@@ -914,6 +919,7 @@
      (watch [_ state _]
        (let [current-file-id (:current-file-id state)
              current-file?   (= current-file-id file-id)
+
              page            (wsh/lookup-page state)
              shape           (ctn/get-shape page shape-id)
              component-id    (:component-id shape)
@@ -979,11 +985,12 @@
     (watch [it state _]
       ;; First delete shapes so we have space in the layout otherwise we can have problems
       ;; in the grid creating new rows/columns to make space
-      (let [file      (wsh/get-file state file-id)
-            libraries (wsh/get-libraries state)
+      (let [libraries (wsh/lookup-libraries state)
             page      (wsh/lookup-page state)
-            objects   (wsh/lookup-page-objects state)
+            objects   (:objects page)
             parent    (get objects (:parent-id shape))
+
+            ldata     (wsh/lookup-file-data state file-id)
 
             ;; If the target parent is a grid layout we need to pass the target cell
             target-cell (when (ctl/grid-layout? parent)
@@ -1000,7 +1007,7 @@
             [new-shape all-parents changes]
             (-> (pcb/empty-changes it (:id page))
                 (pcb/set-undo-group undo-group)
-                (cll/generate-component-swap objects shape file page libraries id-new-component index target-cell keep-props-values))]
+                (cll/generate-component-swap objects shape ldata page libraries id-new-component index target-cell keep-props-values))]
 
         (rx/of
          (dwu/start-undo-transaction undo-id)
@@ -1070,7 +1077,7 @@
      (update [_ state]
        (if (and (not= library-id (:current-file-id state))
                 (nil? asset-id))
-         (d/assoc-in-when state [:libraries library-id :synced-at] (dt/now))
+         (d/assoc-in-when state [:files library-id :synced-at] (dt/now))
          state))
 
      ptk/WatchEvent
@@ -1082,8 +1089,8 @@
                    :asset-type asset-type
                    :asset-id asset-id
                    :undo-group undo-group)
-         (let [file            (wsh/get-file state file-id)
-               libraries       (wsh/get-libraries state)
+         (let [ldata           (wsh/lookup-file-data state file-id)
+               libraries       (wsh/lookup-libraries state)
                current-file-id (:current-file-id state)
 
                changes         (cll/generate-sync-file-changes
@@ -1097,7 +1104,7 @@
                                 current-file-id)
 
                find-frames     (fn [change]
-                                 (->> (ch/frames-changed file change)
+                                 (->> (ch/frames-changed ldata change)
                                       (map #(assoc %1 :page-id (:page-id change)))))
 
                updated-frames  (->> changes
@@ -1107,7 +1114,7 @@
 
            (log/debug :msg "SYNC-FILE finished" :js/rchanges (log-changes
                                                               (:redo-changes changes)
-                                                              file))
+                                                              ldata))
            (rx/concat
             (rx/of (set-updating-library false)
                    (ntf/hide {:tag :sync-dialog}))
@@ -1375,7 +1382,7 @@
       (let [libraries (:workspace-shared-files state)
             library   (d/seek #(= (:id %) library-id) libraries)]
         (if library
-          (update state :libraries assoc library-id (dissoc library :library-summary))
+          (update state :files assoc library-id (dissoc library :library-summary))
           state)))
 
     ptk/WatchEvent
@@ -1387,9 +1394,10 @@
                (rx/ignore))
           (->> (rp/cmd! :get-file {:id library-id :features features})
                (rx/merge-map fpmap/resolve-file)
+               ;; FIXME: this should call the libraries-fetched event instead of ad-hoc assoc event
                (rx/map (fn [file]
                          (fn [state]
-                           (assoc-in state [:libraries library-id] file)))))
+                           (assoc-in state [:files library-id] file)))))
           (->> (rp/cmd! :get-file-object-thumbnails {:file-id library-id :tag "component"})
                (rx/map (fn [thumbnails]
                          (fn [state]
@@ -1407,7 +1415,7 @@
 
     ptk/UpdateEvent
     (update [_ state]
-      (d/dissoc-in state [:libraries library-id]))
+      (update state :files dissoc library-id))
 
     ptk/WatchEvent
     (watch [_ _ _]

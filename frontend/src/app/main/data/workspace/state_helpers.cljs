@@ -14,6 +14,11 @@
    [app.common.svg.path.command :as upc]
    [app.common.uuid :as uuid]))
 
+(defn lookup-libraries
+  "Retrieve all libraries, including the local file."
+  [state]
+  (:files state))
+
 (defn lookup-current-file
   [state]
   (let [file-id (:current-file-id state)]
@@ -108,36 +113,6 @@
   ([state page-id filter-fn]
    (let [objects (lookup-page-objects state page-id)]
      (into [] (filter filter-fn) (vals objects)))))
-
-;; (defn get-local-file
-;;   "Get the data content of the file you are currently working with."
-;;   [state]
-;;   (get state :workspace-data))
-
-;; (defn get-local-file-full
-;;   [state]
-;;   (-> (get state :workspace-file)
-;;       (assoc :data (get state :workspace-data))))
-
-(defn get-file
-  "Get the data content of the given file (it may be the current file
-  or one library)."
-  [state file-id]
-  (lookup-file state file-id))
-
-(defn get-file-full
-  "Get the data content of the given file (it may be the current file
-  or one library)."
-  [state file-id]
-  (if (= file-id (:current-file-id state))
-    (-> (get state :workspace-file)
-        (assoc :data (get state :workspace-data)))
-    (dm/get-in state [:libraries file-id :data])))
-
-(defn get-libraries
-  "Retrieve all libraries, including the local file."
-  [state]
-  (:files state))
 
 (defn- set-content-modifiers [state]
   (fn [id shape]
