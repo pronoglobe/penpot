@@ -6,7 +6,12 @@ use crate::math::Rect;
 use crate::render::{ImageStore, Renderable};
 
 impl Renderable for Shape {
-    fn render(&self, surface: &mut skia_safe::Surface, images: &ImageStore) -> Result<(), String> {
+    fn render(
+        &self,
+        surface: &mut skia_safe::Surface,
+        images: &ImageStore,
+        font_provider: &skia::textlayout::TypefaceFontProvider,
+    ) -> Result<(), String> {
         let transform = self.transform.to_skia_matrix();
 
         // Check transform-matrix code from common/src/app/common/geom/shapes/transforms.cljc
@@ -17,6 +22,15 @@ impl Renderable for Shape {
         matrix.pre_translate(-center);
 
         surface.canvas().concat(&matrix);
+
+        if let Kind::SVGRaw(sr) = &self.kind {
+            let dom = skia::svg::Dom::from_str(
+                sr.content.to_string(),
+                skia::FontMgr::from(font_provider.clone()),
+            )
+            .unwrap();
+            dom.render(surface.canvas());
+        }
 
         for fill in self.fills().rev() {
             render_fill(surface, images, fill, self.selrect, &self.kind);
@@ -84,6 +98,9 @@ fn render_fill(
             surface
                 .canvas()
                 .draw_path(&path.to_skia_path(), &fill.to_paint(&selrect));
+        }
+        (_, Kind::SVGRaw(_sr)) => {
+            // NOOP
         }
     }
 }

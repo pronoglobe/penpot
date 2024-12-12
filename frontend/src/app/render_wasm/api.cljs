@@ -7,19 +7,27 @@
 (ns app.render-wasm.api
   "A WASM based render API"
   (:require
+   ["react-dom/server" :as rds]
    [app.common.data.macros :as dm]
    [app.common.math :as mth]
    [app.common.svg.path :as path]
    [app.common.uuid :as uuid]
    [app.config :as cf]
+   [app.main.ui.shapes.path :as shape-path]
+   [app.main.ui.shapes.shape :refer [shape-container]]
+   [app.main.ui.shapes.svg-raw :as svg-raw]
+   [app.plugins.utils :as u]
    [app.render-wasm.helpers :as h]
+   [app.util.code-gen.markup-svg :as svg]
    [app.util.debug :as dbg]
    [app.util.functions :as fns]
    [app.util.http :as http]
+   [app.util.object :as obj]
    [app.util.webapi :as wapi]
    [beicon.v2.core :as rx]
    [goog.object :as gobj]
-   [promesa.core :as p]))
+   [promesa.core :as p]
+   [rumext.v2 :as mf]))
 
 (defonce internal-frame-id nil)
 (defonce internal-module #js {})
@@ -27,6 +35,63 @@
 
 (def dpr
   (if use-dpr? js/window.devicePixelRatio 1.0))
+
+(declare shape-wrapper-factory)
+
+(defn svg-raw-wrapper-factory
+  [objects]
+  (let [shape-wrapper (shape-wrapper-factory objects)
+        svg-raw-shape   (svg-raw/svg-raw-shape shape-wrapper)]
+    (mf/fnc svg-raw-wrapper
+      [{:keys [shape] :as props}]
+      (let [childs (mapv #(get objects %) (:shapes shape))]
+        [:> shape-container {:shape shape}
+         [:& svg-raw-shape {:shape shape
+                            :childs childs}]]))))
+
+(defn shape-wrapper-factory
+  [objects]
+  (mf/fnc shape-wrapper
+    [{:keys [frame shape] :as props}]
+    (let [svg-raw-wrapper (mf/use-memo (mf/deps objects) #(svg-raw-wrapper-factory objects))]
+      (when shape
+        (let [opts #js {:shape shape}
+              svg-raw? (= :svg-raw (:type shape))]
+          (if-not svg-raw?
+            [:> shape-container {:shape shape}
+             (case (:type shape)
+               :path    [:> shape-path/path-shape opts]
+               nil)]
+
+            [:> svg-raw-wrapper {:shape shape :frame frame}]))))))
+
+(mf/defc object-svg
+  {::mf/wrap [mf/memo]}
+  [{:keys [objects object-id]
+    :as props}]
+  (let [object  (get objects object-id)
+        shape-wrapper
+        (mf/with-memo [objects]
+          (shape-wrapper-factory objects))]
+
+    [:svg {:version "1.1"
+           :xmlns "http://www.w3.org/2000/svg"
+           :xmlnsXlink "http://www.w3.org/1999/xlink"
+           :fill "none"}
+     [:& shape-wrapper {:shape object}]]))
+
+(defn generate-svg
+  [objects shape]
+  (rds/renderToStaticMarkup
+   (mf/element
+    object-svg
+    #js {:objects objects
+         :object-id (-> shape :id)})))
+
+(defn generate-svg-code
+  [shape]
+  (let [objects (u/locate-objects)]
+    (generate-svg objects shape)))
 
 ;; This should never be called from the outside.
 ;; This function receives a "time" parameter that we're not using but maybe in the future could be useful (it is the time since
@@ -130,6 +195,32 @@
                     (aget buffer 3))))
         shape-ids))
 
+(defn- get-string-length [string] (+ (count string) 1))
+
+;; IMPORTANT: We need to take into account that we can only store TTF fonts.
+(defn- store-font
+  [family-name font-array-buffer]
+  (let [family-name-size (get-string-length family-name)
+        font-array-buffer-size (.-byteLength font-array-buffer)
+        size (+ font-array-buffer-size family-name-size)
+        ptr  (h/call internal-module "_alloc_bytes" size)
+        family-name-ptr (+ ptr font-array-buffer-size)
+        heap (gobj/get ^js internal-module "HEAPU8")
+        mem  (js/Uint8Array. (.-buffer heap) ptr size)]
+    (.set mem (js/Uint8Array. font-array-buffer))
+    (h/call internal-module "stringToUTF8" family-name family-name-ptr family-name-size)
+    (h/call internal-module "_store_font" family-name-size font-array-buffer-size)))
+
+;; This doesn't work
+#_(store-font-url "roboto-thin-italic" "https://fonts.gstatic.com/s/roboto/v32/KFOiCnqEu92Fr1Mu51QrEzAdLw.woff2")
+;; This does
+#_(store-font-url "sourcesanspro-regular" "http://localhost:3449/fonts/sourcesanspro-regular.ttf")
+(defn- store-font-url
+  [family-name font-url]
+  (-> (p/then (js/fetch font-url)
+              (fn [response] (.arrayBuffer response)))
+      (p/then (fn [array-buffer] (store-font family-name array-buffer)))))
+
 (defn- store-image
   [id]
   (let [buffer (uuid/get-u32 id)
@@ -213,13 +304,32 @@
 
 (defn set-shape-path-content
   [content]
-  (let [buffer (path/content->buffer content)
-        size (.-byteLength buffer)
-        ptr (h/call internal-module "_alloc_bytes" size)
+  (let [buffer    (path/content->buffer content)
+        size      (.-byteLength buffer)
+        ptr       (h/call internal-module "_alloc_bytes" size)
         heap      (gobj/get ^js internal-module "HEAPU8")
         mem       (js/Uint8Array. (.-buffer heap) ptr size)]
     (.set mem (js/Uint8Array. buffer))
     (h/call internal-module "_set_shape_path_content")))
+
+(defn set-shape-svg-raw-content
+  [content]
+  (let [size (get-string-length content)
+        ptr (h/call internal-module "_alloc_bytes" size)]
+    (h/call internal-module "stringToUTF8" content ptr size)
+    (h/call internal-module "_set_shape_svg_raw_content")))
+
+(defn set-shape-content
+  [shape content]
+  (let [type (:type shape)]
+    (cond
+      (and (some? content)
+           (or (= type :svg-raw)
+               (and (= type :path) (some? (:svg-attrs shape)))))
+      (set-shape-svg-raw-content (generate-svg-code shape))
+
+      (= type :path)
+      (set-shape-path-content content))))
 
 (defn- translate-blend-mode
   [blend-mode]
@@ -296,7 +406,8 @@
               (set-shape-children children)
               (set-shape-opacity opacity)
               (set-shape-hidden hidden)
-              (when (and (some? content) (= type :path)) (set-shape-path-content content))
+              (set-shape-content shape content)
+
               (let [pending-fills (doall (set-shape-fills fills))]
                 (recur (inc index) (into pending pending-fills))))
             pending))]
@@ -314,9 +425,9 @@
        :alpha true})
 
 (defn clear-canvas
-  []
+  [])
   ;; TODO: perform corresponding cleaning
-  )
+
 
 (defn resize-viewbox
   [width height]
