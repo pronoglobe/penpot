@@ -72,7 +72,7 @@ impl RenderState {
         let default_font = skia::FontMgr::default()
             .new_from_data(include_bytes!("fonts/RobotoMono-Regular.ttf"), None)
             .expect("Failed to load font");
-        font_provider.register_typeface(default_font, "default-font");
+        font_provider.register_typeface(default_font, "robotomono-regular");
 
         RenderState {
             gpu_state,

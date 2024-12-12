@@ -13,16 +13,13 @@
    [app.common.svg.path :as path]
    [app.common.uuid :as uuid]
    [app.config :as cf]
-   [app.main.ui.shapes.path :as shape-path]
+   [app.main.ui.shapes.fills :as fills]
+   [app.main.ui.shapes.path :refer [path-shape]]
    [app.main.ui.shapes.shape :refer [shape-container]]
-   [app.main.ui.shapes.svg-raw :as svg-raw]
-   [app.plugins.utils :as u]
    [app.render-wasm.helpers :as h]
-   [app.util.code-gen.markup-svg :as svg]
    [app.util.debug :as dbg]
    [app.util.functions :as fns]
    [app.util.http :as http]
-   [app.util.object :as obj]
    [app.util.webapi :as wapi]
    [beicon.v2.core :as rx]
    [goog.object :as gobj]
@@ -36,62 +33,48 @@
 (def dpr
   (if use-dpr? js/window.devicePixelRatio 1.0))
 
-(declare shape-wrapper-factory)
+(mf/defc svg-raw-element
+  {::mf/props :obj}
+  [{:keys [tag attrs content] :as props}]
+  [:& (name tag) attrs
+   (for [child content]
+     (if (string? child)
+       child
+       [:& svg-raw-element child]))])
 
-(defn svg-raw-wrapper-factory
-  [objects]
-  (let [shape-wrapper (shape-wrapper-factory objects)
-        svg-raw-shape   (svg-raw/svg-raw-shape shape-wrapper)]
-    (mf/fnc svg-raw-wrapper
-      [{:keys [shape] :as props}]
-      (let [childs (mapv #(get objects %) (:shapes shape))]
-        [:> shape-container {:shape shape}
-         [:& svg-raw-shape {:shape shape
-                            :childs childs}]]))))
-
-(defn shape-wrapper-factory
-  [objects]
-  (mf/fnc shape-wrapper
-    [{:keys [frame shape] :as props}]
-    (let [svg-raw-wrapper (mf/use-memo (mf/deps objects) #(svg-raw-wrapper-factory objects))]
-      (when shape
-        (let [opts #js {:shape shape}
-              svg-raw? (= :svg-raw (:type shape))]
-          (if-not svg-raw?
-            [:> shape-container {:shape shape}
-             (case (:type shape)
-               :path    [:> shape-path/path-shape opts]
-               nil)]
-
-            [:> svg-raw-wrapper {:shape shape :frame frame}]))))))
-
-(mf/defc object-svg
-  {::mf/wrap [mf/memo]}
-  [{:keys [objects object-id]
-    :as props}]
-  (let [object  (get objects object-id)
-        shape-wrapper
-        (mf/with-memo [objects]
-          (shape-wrapper-factory objects))]
-
+(mf/defc svg-raw
+  {::mf/props :obj}
+  [{:keys [shape] :as props}]
+  (let [content (:content shape)]
     [:svg {:version "1.1"
            :xmlns "http://www.w3.org/2000/svg"
            :xmlnsXlink "http://www.w3.org/1999/xlink"
            :fill "none"}
-     [:& shape-wrapper {:shape object}]]))
 
-(defn generate-svg
-  [objects shape]
-  (rds/renderToStaticMarkup
-   (mf/element
-    object-svg
-    #js {:objects objects
-         :object-id (-> shape :id)})))
+     ;; FIXME: Not sure if this is needed
+     #_[:defs
+      [:& fills/fills            {:shape shape :render-id "render-id"}]]
 
-(defn generate-svg-code
+     (if (string? content)
+       content
+       [:& svg-raw-element content])]))
+
+(mf/defc svg-path
+  {::mf/props :obj}
+  [{:keys [shape] :as props}]
+  [:svg {:version "1.1"
+         :xmlns "http://www.w3.org/2000/svg"
+         :xmlnsXlink "http://www.w3.org/1999/xlink"
+         :fill "none"}
+   [:> shape-container {:shape shape}
+    [:& path-shape {:shape shape}]]])
+
+(defn get-static-markup
   [shape]
-  (let [objects (u/locate-objects)]
-    (generate-svg objects shape)))
+  (rds/renderToStaticMarkup
+   (case (:type shape)
+     :svg-raw (mf/element svg-raw #js {:shape shape})
+     :path (mf/element svg-path #js {:shape shape}))))
 
 ;; This should never be called from the outside.
 ;; This function receives a "time" parameter that we're not using but maybe in the future could be useful (it is the time since
@@ -326,7 +309,7 @@
       (and (some? content)
            (or (= type :svg-raw)
                (and (= type :path) (some? (:svg-attrs shape)))))
-      (set-shape-svg-raw-content (generate-svg-code shape))
+      (set-shape-svg-raw-content (get-static-markup shape))
 
       (= type :path)
       (set-shape-path-content content))))
