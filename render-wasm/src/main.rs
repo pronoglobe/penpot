@@ -328,7 +328,9 @@ pub extern "C" fn set_shape_svg_raw_content() {
             .unwrap()
             .trim_end_matches('\0')
             .to_string();
-        shape.set_svg_raw_content(svg_raw_content).expect("Failed to set svg raw content");
+        shape
+            .set_svg_raw_content(svg_raw_content)
+            .expect("Failed to set svg raw content");
     }
 }
 

@@ -14,9 +14,6 @@
    [app.common.svg.path :as path]
    [app.common.uuid :as uuid]
    [app.config :as cf]
-   [app.main.ui.shapes.fills :as fills]
-   [app.main.ui.shapes.path :refer [path-shape]]
-   [app.main.ui.shapes.shape :refer [shape-container]]
    [app.render-wasm.helpers :as h]
    [app.util.debug :as dbg]
    [app.util.functions :as fns]
@@ -51,31 +48,14 @@
            :xmlns "http://www.w3.org/2000/svg"
            :xmlnsXlink "http://www.w3.org/1999/xlink"
            :fill "none"}
-
-     ;; FIXME: Not sure if this is needed
-     #_[:defs
-      [:& fills/fills            {:shape shape :render-id "render-id"}]]
-
      (if (string? content)
        content
        [:& svg-raw-element content])]))
 
-(mf/defc svg-path
-  {::mf/props :obj}
-  [{:keys [shape] :as props}]
-  [:svg {:version "1.1"
-         :xmlns "http://www.w3.org/2000/svg"
-         :xmlnsXlink "http://www.w3.org/1999/xlink"
-         :fill "none"}
-   [:> shape-container {:shape shape}
-    [:& path-shape {:shape shape}]]])
-
 (defn get-static-markup
   [shape]
   (rds/renderToStaticMarkup
-   (case (:type shape)
-     :svg-raw (mf/element svg-raw #js {:shape shape})
-     :path (mf/element svg-path #js {:shape shape}))))
+   (mf/element svg-raw #js {:shape shape})))
 
 ;; This should never be called from the outside.
 ;; This function receives a "time" parameter that we're not using but maybe in the future could be useful (it is the time since
@@ -307,9 +287,7 @@
   [shape content]
   (let [type (:type shape)]
     (cond
-      (and (some? content)
-           (or (= type :svg-raw)
-               (and (= type :path) (d/not-empty? (:svg-attrs shape)))))
+      (= type :svg-raw)
       (set-shape-svg-raw-content (get-static-markup shape))
 
       (= type :path)

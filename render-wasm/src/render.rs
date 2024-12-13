@@ -180,6 +180,13 @@ impl RenderState {
             skia::SamplingOptions::new(skia::FilterMode::Linear, skia::MipmapMode::Nearest),
             Some(&paint),
         );
+        // self.drawing_surface.draw(
+        //     &svg_canvas,
+        //     (0.0, 0.0),
+        //     skia::SamplingOptions::new(skia::FilterMode::Linear, skia::MipmapMode::Nearest),
+        //     Some(&paint),
+        // );
+
         self.drawing_surface
             .canvas()
             .clear(skia::Color::TRANSPARENT);
