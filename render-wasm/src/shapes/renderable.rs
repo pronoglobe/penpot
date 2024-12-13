@@ -13,8 +13,6 @@ impl Renderable for Shape {
         images: &ImageStore,
         font_provider: &skia::textlayout::TypefaceFontProvider,
     ) -> Result<(), String> {
-        println!("self.selrect {:?}", self.selrect);
-
         let transform = self.transform.to_skia_matrix();
 
         // Check transform-matrix code from common/src/app/common/geom/shapes/transforms.cljc
