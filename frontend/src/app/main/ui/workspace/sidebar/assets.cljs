@@ -23,8 +23,8 @@
    [app.main.ui.workspace.sidebar.assets.file-library :refer [file-library]]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
-   [okulary.core :as l]
    [cuerdas.core :as str]
+   [okulary.core :as l]
    [rumext.v2 :as mf]))
 
 (mf/defc assets-libraries*

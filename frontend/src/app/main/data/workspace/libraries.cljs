@@ -537,8 +537,8 @@
                 (-> (pcb/empty-changes it page-id)
                     ;; Deleting main root triggers component delete
                     (cls/generate-delete-shapes fdata page objects #{root-id} {:components-v2 components-v2
-                                                                              :undo-group undo-group
-                                                                              :undo-id undo-id}))]
+                                                                               :undo-group undo-group
+                                                                               :undo-id undo-id}))]
             (rx/of
              (dwu/start-undo-transaction undo-id)
              (dwt/clear-thumbnail (:current-file-id state) page-id root-id "component")
@@ -858,8 +858,7 @@
              fdata         (:data file)
 
              container     (ctn/get-container fdata :page page-id)
-             shape         (ctn/get-shape container id)
-             ]
+             shape         (ctn/get-shape container id)]
 
          (when (ctk/instance-head? shape)
            (let [changes

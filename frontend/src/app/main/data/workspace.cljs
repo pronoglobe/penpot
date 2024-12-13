@@ -249,8 +249,7 @@
         (-> state
             (assoc :thumbnails thumbnails)
             (assoc :workspace-data (:data file))
-            (update :files assoc file-id file)
-            )))
+            (update :files assoc file-id file))))
 
     ptk/WatchEvent
     (watch [_ state _]
