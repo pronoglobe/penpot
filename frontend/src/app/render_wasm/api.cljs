@@ -8,7 +8,6 @@
   "A WASM based render API"
   (:require
    ["react-dom/server" :as rds]
-   [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.math :as mth]
    [app.common.svg.path :as path]
@@ -22,6 +21,7 @@
    [beicon.v2.core :as rx]
    [goog.object :as gobj]
    [promesa.core :as p]
+   [cuerdas.core :as str]
    [rumext.v2 :as mf]))
 
 (defonce internal-frame-id nil)
@@ -266,6 +266,33 @@
                   (store-image id))))))
         fills))
 
+(defn serialize-path-style
+  [style]
+  (reduce
+   (fn [acc [key value]]
+     (str/concat acc (str/kebab key) ": " value ";"))
+   ""
+   style))
+
+(defn serialize-path-attrs
+  [svg-attrs]
+  (reduce
+   (fn [acc [key value]]
+        (str/concat
+         acc
+         (str/kebab key) "\0"
+         (if (= :style key)
+           (serialize-path-style value)
+           value) "\0")) "" svg-attrs))
+
+(defn set-shape-path-attrs
+  [attrs]
+  (let [str (serialize-path-attrs attrs)
+        size (count str)
+        ptr (h/call internal-module "_alloc_bytes" size)]
+    (h/call internal-module "stringToUTF8" str ptr size)
+    (h/call internal-module "_set_shape_path_attrs" (count attrs))))
+
 (defn set-shape-path-content
   [content]
   (let [buffer    (path/content->buffer content)
@@ -291,7 +318,9 @@
       (set-shape-svg-raw-content (get-static-markup shape))
 
       (= type :path)
-      (set-shape-path-content content))))
+      (do (when (some? (:svg-attrs shape))
+            (set-shape-path-attrs (:svg-attrs shape)))
+          (set-shape-path-content content)))))
 
 (defn- translate-blend-mode
   [blend-mode]

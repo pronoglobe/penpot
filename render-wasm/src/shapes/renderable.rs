@@ -33,27 +33,46 @@ impl Renderable for Shape {
             dom.render(surface.canvas());
         }
 
-        match &self.kind {
-            Kind::Path(_) => {
-                let canvas = skia::svg::Canvas::new(skia::Rect::from_size((self.selrect.right - self.selrect.left + 1., self.selrect.bottom - self.selrect.top + 1.)), None);
-                // SVG canvas needs positive locations
-                canvas.concat(&skia::Matrix::translate(skia::Point::new(-self.selrect.left, -self.selrect.top)));
-                for fill in self.fills().rev() {
-                    render_fill(&canvas, images, fill, self.selrect, &self.kind);
-                }
-                let svg_data = canvas.end();
-                let svg = String::from_utf8_lossy(svg_data.as_bytes());
+        for fill in self.fills().rev() {
+            render_fill(surface, &svg_canvas, images, fill, self.selrect, &self.kind);
+        }
+
+        // let svg_data = svg_canvas.end();
+        // let svg = String::from_utf8_lossy(svg_data.as_bytes());
+
+        if let Kind::Path(_) = &self.kind {
+        /*
+            let mut doc = Document::parse_str(&svg).unwrap();
+            let root = doc.root_element().unwrap();
+            let path = root.find(&doc, "path").unwrap();
+            path.set_attribute(&mut doc, "fill-rule", "evenodd");
+            let svg_mod = doc.write_str().unwrap();
+
+            let dom = skia::svg::Dom::from_str(
+                svg_mod,
+                skia::FontMgr::from(font_provider.clone()),
+            )
+            .unwrap();
+        */
+            // dom.render(surface.canvas());
+            // println!("svg: {:?}", svg_mod);
+        }
+
+        //Is this needed here?
+        // let mut paint = skia::Paint::default();
+        // paint.set_blend_mode(self.blend_mode.into());
+        // paint.set_alpha_f(self.opacity);
 
                 let mut doc = Document::parse_str(&svg).unwrap();
                 let root = doc.root_element().unwrap();
-                
+
                 if let Some(element) = root.find(&doc, "path") {
                     element.set_attribute(&mut doc, "fill-rule", "evenodd");
                     let svg_mod = doc.write_str().unwrap();
                     let dom =
                         skia::svg::Dom::from_str(svg_mod, skia::FontMgr::from(font_provider.clone()))
                             .unwrap();
-                    
+
                     surface.canvas().concat(&skia::Matrix::translate(skia::Point::new(self.selrect.left, self.selrect.top)));
                     dom.render(surface.canvas());
                 }

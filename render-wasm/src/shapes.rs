@@ -138,6 +138,15 @@ impl Shape {
         Ok(())
     }
 
+    pub fn set_path_attr(&mut self, name: String, value: String) {
+        match &mut self.kind {
+            Kind::Path(p) => {
+                p.set_attr(name, value);
+            },
+            Kind::Rect(_) | Kind::Circle(_) | Kind::SVGRaw(_) => todo!()
+        };
+    }
+
     pub fn set_svg_raw_content(&mut self, content: String) -> Result<(), String> {
         self.kind = Kind::SVGRaw(SVGRaw::from_content(content));
         Ok(())
