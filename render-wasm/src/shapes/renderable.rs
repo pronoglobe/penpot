@@ -38,7 +38,7 @@ impl Renderable for Shape {
         match &self.kind {
             Kind::Path(_) => {
                 let canvas = skia::svg::Canvas::new(skia::Rect::from_size((self.selrect.right - self.selrect.left + 1., self.selrect.bottom - self.selrect.top + 1.)), None);
-                // SVG canvas needs positive sizes
+                // SVG canvas needs positive locations
                 canvas.concat(&skia::Matrix::translate(skia::Point::new(-self.selrect.left, -self.selrect.top)));
                 for fill in self.fills().rev() {
                     render_fill(&canvas, images, fill, self.selrect, &self.kind);
